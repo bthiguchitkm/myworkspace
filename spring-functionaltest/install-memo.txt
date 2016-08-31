@@ -1,0 +1,32 @@
+○Javaのポリシーファイルの更新
+http://syaka-syaka.blogspot.jp/2014/07/javacrypt.html
+
+○OpenSSLのインストール
+環境変数 Pathに以下を追加
+C:\openssl\bin;
+
+○設定の修正
+/spring-functionaltest-web/src/main/resources/META-INF/spring/athr/spring-security-athr06.xml
+37、38行目　${RemoteIpAddress:localhost}をlocalhostに変更する。
+（修正前）
+            access="hasIpAddress('${RemoteIpAddress:localhost}') and hasRole('CONFIGURATION_MANAGER')" />
+（修正後）
+            access="hasIpAddress('localhost') and hasRole('CONFIGURATION_MANAGER')" />
+
+○テストの修正
+jp.co.ntt.fw.spring.functionaltest.selenium.SOAPTestSupportクラスはテストメソッドがないが、
+テストメソッドがないとしてテストエラーになる。
+そのため、以下のメソッドを追加して回避する。
+    @Test
+    public void dummy(){
+    	
+    }
+
+○JSTLのjarを組み込む
+Tomcat 8.5/lib/jstl-1.2.jar
+
+○JNDIを使う場合、TomcatにJDBCドライバを組み込む
+Tomcat 8.5/lib/postgresql-9.4-1206-jdbc41.jar
+
+
+

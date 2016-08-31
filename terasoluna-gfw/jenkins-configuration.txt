@@ -1,0 +1,112 @@
+common
+    Set JAVA_HOME
+
+terasoluna-gfw-functionaltest-build
+    mvn clean install -am -pl terasoluna-gfw-functionaltest-web -P warpack-env,tomcat8-postgresql sonar:sonar
+
+terasoluna-gfw-functionaltest-initdb
+    mvn sql:execute -pl terasoluna-gfw-functionaltest-initdb -P local-postgres
+
+terasoluna-gfw-functionaltest-release
+   shell script
+--------
+# SETUP
+APP_NAME=terasoluna-gfw-functionaltest
+TOMCAT_HOST=${HOST_IP}:${APSRV_WEB_PORT}
+TOMCAT_MANAGER_USER=xxxxxxxx
+TOMCAT_MANAGER_PASS=xxxxxxxx
+WEBAPP_NAME=${APP_NAME}-web
+
+# 対象サーバ、sshポート、ユーザ設定
+VM_AP_IP=${HOST_IP}
+VM_AP_APSRV_SSH_PORT=${APSRV_SSH_PORT}
+VM_AP_SSH_USER=xxxxxxxx
+VM_TOMCAT_HOME=/opt/tomcat/tomcat
+VM_TOMCAT_ENV_WAR_DIR=${VM_TOMCAT_HOME}/webapps-war
+
+ssh -l ${VM_AP_SSH_USER} -p ${VM_AP_APSRV_SSH_PORT} ${VM_AP_IP} "mkdir -p ${VM_TOMCAT_ENV_WAR_DIR}"
+scp -P ${VM_AP_APSRV_SSH_PORT} ${WORKSPACE}/target/${WEBAPP_NAME}.war ${VM_AP_SSH_USER}@${VM_AP_IP}:${VM_TOMCAT_ENV_WAR_DIR}/.
+
+ssh -l ${VM_AP_SSH_USER} -p ${VM_AP_APSRV_SSH_PORT} ${VM_AP_IP} "mkdir -m775 -p ${VM_TOMCAT_HOME}/conf/Catalina/localhost"
+
+WAR_FILE_PATH=`echo "${VM_TOMCAT_ENV_WAR_DIR}/${WEBAPP_NAME}.war" | perl -MURI::Escape -lne 'print uri_escape($_)'`
+STOP_URL="http://${TOMCAT_HOST}/manager/text/stop?path=/${WEBAPP_NAME}"
+START_URL="http://${TOMCAT_HOST}/manager/text/start?path=/${WEBAPP_NAME}"
+UNDEPLOY_URL="http://${TOMCAT_HOST}/manager/text/undeploy?path=/${WEBAPP_NAME}"
+DEPLOY_URL="http://${TOMCAT_HOST}/manager/text/deploy?path=/${WEBAPP_NAME}&war=${WAR_FILE_PATH}"
+
+# funcationtestの停止
+wget -O - --http-user=${TOMCAT_MANAGER_USER} --http-password=${TOMCAT_MANAGER_PASS} ${STOP_URL}
+
+# funcationtestのアンデプロイ
+wget -O - --http-user=${TOMCAT_MANAGER_USER} --http-password=${TOMCAT_MANAGER_PASS} ${UNDEPLOY_URL}
+
+# 念のため削除
+rm -fr ${VM_TOMCAT_HOME}/webapps/${WEBAPP_NAME}.war
+rm -fr ${VM_TOMCAT_HOME}/webapps/${WEBAPP_NAME}
+
+# undeploy後にcontextを配置する
+scp -P ${VM_AP_APSRV_SSH_PORT} ${WORKSPACE}/terasoluna-gfw-functionaltest-env/configs/tomcat8-postgresql/ContainerConfigXML/context.xml ${VM_AP_SSH_USER}@${VM_AP_IP}:${VM_TOMCAT_HOME}/conf/Catalina/localhost/${WEBAPP_NAME}.xml
+
+# funcationtestのデプロイ
+wget -O - --http-user=${TOMCAT_MANAGER_USER} --http-password=${TOMCAT_MANAGER_PASS} ${DEPLOY_URL}
+
+# funcationtestをstart
+wget -O - --http-user=${TOMCAT_MANAGER_USER} --http-password=${TOMCAT_MANAGER_PASS} ${START_URL}
+
+WAIT_TIME=10
+MAX_COUNT=5
+NOW_COUNT=0
+RET=1
+
+while [ "${RET}" -ne "0" -a "${NOW_COUNT}" -lt "${MAX_COUNT}" ]
+do
+    sleep ${WAIT_TIME}
+    wget -O - ${TOMCAT_HOST}/${WEBAPP_NAME}
+    RET=$?
+    if [ "${RET}" -ne "0" ]; then
+        echo "${WEBAPP_NAME}がまだ正常起動していません。"
+        echo "リトライ回数：${NOW_COUNT}回目、sleep秒数=${WAIT_TIME}"
+    else
+        echo "${WEBAPP_NAME}が正常起動しました。"
+        RET=0
+    fi
+    NOW_COUNT=`expr ${NOW_COUNT} + 1`
+done
+
+if [ ${RET} -ne "0" -o "${NOW_COUNT}" -eq "${MAX_COUNT}" ]; then
+    echo "${WEBAPP_NAME}が正常起動していません。"
+    echo "戻り値=${RET}"
+    echo "リトライ回数=${NOW_COUNT}回目、最大リトライ回数=${MAX_COUNT}"
+    return 1
+fi
+--------
+
+terasoluna-gfw-functionaltest-selenium
+    mvn clean install -am -pl terasoluna-gfw-functionaltest-selenium
+    property:
+        maven.test.skip=true
+
+    mvn clean test -pl terasoluna-gfw-functionaltest-selenium
+    property:
+# testing properties
+test=$TARGET_CLASS
+junit.version=4.11
+spring.profiles.active=firefox
+
+# selenium.properties (terasoluna-gfw-functionaltest-selenium)
+selenium.serverUrl=http://${HOST_IP}:${APSRV_WEB_PORT}
+selenium.enableCapture=${ENABLE_CAPTURE}
+selenium.enablePageSource=${ENABLE_PAGE_SOURCE}
+selenium.evidenceBaseDirectory=${WORKSPACE}/evidence
+selenium.logDbHost=${HOST_IP}
+selenium.logDbPort=${APSRV_LOG_DB_PORT}
+
+# application-env.properties (terasoluna-gfw-functionaltest-env)
+app.redirect.allowed.externalUrl=http://egg.nttdata.co.jp
+
+
+
+    test result xml:terasoluna-gfw-functionaltest-selenium/target/surefire-reports/*.xml
+
+
